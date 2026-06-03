@@ -3350,7 +3350,13 @@ static TEE_Result get_hkdf_params(uint32_t algo, const TEE_Attribute *params,
 	*salt_len = *info_len = *okm_len = 0;
 
 	if (algo == TEE_ALG_HKDF) {
-		*hash_id = TEE_ALG_SHA256;
+		/*
+		 * The consolidated TEE_ALG_HKDF carries no hash bits in
+		 * the algorithm ID; default to SHA-256 in the "main hash"
+		 * form expected by tee_cryp_hkdf() (which feeds it back
+		 * through TEE_ALG_HASH_ALGO()).
+		 */
+		*hash_id = TEE_ALG_GET_DIGEST_HASH(TEE_ALG_HKDF_SHA256_DERIVE_KEY);
 	} else {
 		*hash_id = TEE_ALG_GET_DIGEST_HASH(algo);
 		found |= HASH;
