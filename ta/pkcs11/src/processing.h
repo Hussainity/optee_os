@@ -165,6 +165,12 @@ enum pkcs11_rc tee_init_ctr_operation(struct active_processing *processing,
 enum pkcs11_rc derive_key_by_symm_enc(struct pkcs11_session *session,
 				      void **out_buf, uint32_t *out_sz);
 
+enum pkcs11_rc derive_key_by_xor(struct pkcs11_session *session,
+				  struct pkcs11_attribute_head *proc_params,
+				  struct pkcs11_object *base_key,
+				  void **out_buf,
+				  uint32_t *out_size);
+
 /*
  * HKDF (PKCS#11 v3.0)
  */

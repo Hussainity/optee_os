@@ -1128,6 +1128,117 @@ enum pkcs11_rc derive_key_by_symm_enc(struct pkcs11_session *session,
 	return rc;
 }
 
+enum pkcs11_rc derive_key_by_xor(struct pkcs11_session *session,
+				  struct pkcs11_attribute_head *proc_params,
+				  struct pkcs11_object *base_key,
+				  void **out_buf,
+				  uint32_t *out_size)
+{
+	enum pkcs11_rc rc = PKCS11_CKR_GENERAL_ERROR;
+	struct serialargs args = { };
+	uint64_t second_key_handle = 0;
+	struct pkcs11_object *second_key = NULL;
+	void *key1_value = NULL;
+	void *key2_value = NULL;
+	uint32_t key1_size = 0;
+	uint32_t key2_size = 0;
+	uint8_t *xor_result = NULL;
+	enum pkcs11_key_type key_type = PKCS11_CKK_UNDEFINED_ID;
+	uint32_t i = 0;
+
+	/* Extract second key handle from mechanism parameters (u64 from cryptoki) */
+	serialargs_init(&args, proc_params->data, proc_params->size);
+
+	rc = serialargs_get(&args, &second_key_handle, sizeof(uint64_t));
+	if (rc) {
+		EMSG("Failed to extract second key handle, rc=0x%x", rc);
+		return PKCS11_CKR_MECHANISM_PARAM_INVALID;
+	}
+
+	/* Verify no extra data in parameters */
+	if (serialargs_remaining_bytes(&args)) {
+		EMSG("Extra data in mechanism parameters");
+		return PKCS11_CKR_MECHANISM_PARAM_INVALID;
+	}
+
+	/* Validate handle fits in uint32_t */
+	if (second_key_handle > UINT32_MAX) {
+		EMSG("Handle value 0x%lx exceeds uint32_t range",
+		     (unsigned long)second_key_handle);
+		return PKCS11_CKR_KEY_HANDLE_INVALID;
+	}
+
+	/* Lookup second key object */
+	second_key = pkcs11_handle2object((uint32_t)second_key_handle, session);
+	if (!second_key) {
+		EMSG("Invalid second key handle 0x%lx", (unsigned long)second_key_handle);
+		return PKCS11_CKR_KEY_HANDLE_INVALID;
+	}
+
+	/* Validate both keys have CKA_DERIVE attribute */
+	if (!get_bool(base_key->attributes, PKCS11_CKA_DERIVE)) {
+		EMSG("Base key missing CKA_DERIVE attribute");
+		return PKCS11_CKR_KEY_FUNCTION_NOT_PERMITTED;
+	}
+
+	if (!get_bool(second_key->attributes, PKCS11_CKA_DERIVE)) {
+		EMSG("Second key missing CKA_DERIVE attribute");
+		return PKCS11_CKR_KEY_FUNCTION_NOT_PERMITTED;
+	}
+
+	/* Validate both keys are CKK_GENERIC_SECRET */
+	key_type = get_key_type(base_key->attributes);
+	if (key_type != PKCS11_CKK_GENERIC_SECRET) {
+		EMSG("Base key is not GENERIC_SECRET");
+		return PKCS11_CKR_KEY_TYPE_INCONSISTENT;
+	}
+
+	key_type = get_key_type(second_key->attributes);
+	if (key_type != PKCS11_CKK_GENERIC_SECRET) {
+		EMSG("Second key is not GENERIC_SECRET");
+		return PKCS11_CKR_KEY_TYPE_INCONSISTENT;
+	}
+
+	/* Extract CKA_VALUE from both keys */
+	rc = get_attribute_ptr(base_key->attributes, PKCS11_CKA_VALUE,
+			       &key1_value, &key1_size);
+	if (rc || !key1_value || key1_size == 0) {
+		EMSG("Failed to get base key value, rc=0x%x", rc);
+		return rc ? rc : PKCS11_CKR_KEY_UNEXTRACTABLE;
+	}
+
+	rc = get_attribute_ptr(second_key->attributes, PKCS11_CKA_VALUE,
+			       &key2_value, &key2_size);
+	if (rc || !key2_value || key2_size == 0) {
+		EMSG("Failed to get second key value, rc=0x%x", rc);
+		return rc ? rc : PKCS11_CKR_KEY_UNEXTRACTABLE;
+	}
+
+	/* Ensure that keys are the same length */
+	if (key1_size != key2_size) {
+		EMSG("Cannot XOR keys of different lengths");
+		return PKCS11_CKR_MECHANISM_PARAM_INVALID;
+	}
+
+	/* Allocate output buffer */
+	xor_result = TEE_Malloc(key1_size, TEE_USER_MEM_HINT_NO_FILL_ZERO);
+	if (!xor_result) {
+		EMSG("Failed to allocate %u bytes", key1_size);
+		return PKCS11_CKR_DEVICE_MEMORY;
+	}
+
+	/* Perform XOR operation */
+	for (i = 0; i < key1_size; i++)
+		xor_result[i] = ((uint8_t *)key1_value)[i] ^
+				((uint8_t *)key2_value)[i];
+
+	/* Return results */
+	*out_buf = xor_result;
+	*out_size = key1_size;
+
+	return PKCS11_CKR_OK;
+}
+
 enum pkcs11_rc wrap_data_by_symm_enc(struct pkcs11_session *session,
 				     void *data, uint32_t data_sz,
 				     void *out_buf, uint32_t *out_sz)

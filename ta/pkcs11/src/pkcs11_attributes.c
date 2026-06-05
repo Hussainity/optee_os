@@ -1659,6 +1659,7 @@ check_created_attrs_against_processing(uint32_t proc_id,
 	case PKCS11_CKM_AES_CBC:
 	case PKCS11_CKM_AES_ECB_ENCRYPT_DATA:
 	case PKCS11_CKM_AES_CBC_ENCRYPT_DATA:
+	case PKCS11_CKM_XOR_BASE_AND_KEY:
 	case PKCS11_CKM_RSA_AES_KEY_WRAP:
 		assert(check_attr_bval(proc_id, head, PKCS11_CKA_LOCAL, false));
 		break;
@@ -1985,6 +1986,14 @@ check_parent_attrs_against_processing(enum pkcs11_mechanism_id proc_id,
 			return PKCS11_CKR_FUNCTION_FAILED;
 		}
 
+		break;
+	case PKCS11_CKM_XOR_BASE_AND_KEY:
+		if (key_class != PKCS11_CKO_SECRET_KEY ||
+		    key_type != PKCS11_CKK_GENERIC_SECRET) {
+			EMSG("Invalid key %s/%s for XOR_BASE_AND_KEY",
+			     id2str_class(key_class), id2str_key_type(key_type));
+			return PKCS11_CKR_KEY_FUNCTION_NOT_PERMITTED;
+		}
 		break;
 	case PKCS11_CKM_MD5_HMAC:
 	case PKCS11_CKM_SHA_1_HMAC:

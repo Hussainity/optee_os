@@ -80,6 +80,7 @@ static const struct pkcs11_mechachism_modes pkcs11_modes[] = {
 		  ANY_PART),
 	MECHANISM(PKCS11_CKM_AES_CBC_ENCRYPT_DATA, PKCS11_CKFM_DERIVE,
 		  ANY_PART),
+	MECHANISM(PKCS11_CKM_XOR_BASE_AND_KEY, PKCS11_CKFM_DERIVE, ANY_PART),
 	MECHANISM(PKCS11_CKM_AES_KEY_GEN, PKCS11_CKFM_GENERATE, ANY_PART),
 	MECHANISM(PKCS11_CKM_GENERIC_SECRET_KEY_GEN, PKCS11_CKFM_GENERATE,
 		  ANY_PART),
@@ -243,6 +244,7 @@ const struct pkcs11_mechachism_modes token_mechanism[] = {
 	TA_MECHANISM(PKCS11_CKM_AES_CMAC_GENERAL, CKFM_AUTH_NO_RECOVER),
 	TA_MECHANISM(PKCS11_CKM_AES_ECB_ENCRYPT_DATA, PKCS11_CKFM_DERIVE),
 	TA_MECHANISM(PKCS11_CKM_AES_CBC_ENCRYPT_DATA, PKCS11_CKFM_DERIVE),
+	TA_MECHANISM(PKCS11_CKM_XOR_BASE_AND_KEY, PKCS11_CKFM_DERIVE),
 	TA_MECHANISM(PKCS11_CKM_ECDH1_DERIVE, PKCS11_CKFM_DERIVE),
 	TA_MECHANISM(PKCS11_CKM_HKDF_DERIVE, PKCS11_CKFM_DERIVE),
 	TA_MECHANISM(PKCS11_CKM_AES_KEY_GEN, PKCS11_CKFM_GENERATE),
@@ -361,6 +363,11 @@ void pkcs11_mechanism_supported_key_sizes(uint32_t proc_id,
 		/* This mechanism expects the keysize to be returned in bits */
 		*min_key_size = 1;		/* in bits */
 		*max_key_size = 4096;		/* in bits */
+		break;
+	case PKCS11_CKM_XOR_BASE_AND_KEY:
+		/* XOR derivation: key size in bits */
+		*min_key_size = 8;		/* 1 byte minimum */
+		*max_key_size = 4096 * 8;	/* 4KB maximum */
 		break;
 	case PKCS11_CKM_MD5_HMAC:
 	case PKCS11_CKM_MD5_HMAC_GENERAL:

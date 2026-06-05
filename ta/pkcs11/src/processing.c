@@ -974,7 +974,13 @@ enum pkcs11_rc entry_processing_key(struct pkcs11_client *client,
 	if (rc)
 		goto out;
 
-	if (processing_is_tee_symm(proc_params->id)) {
+	/* Handle XOR derivation separately (doesn't use TEE operations) */
+	if (proc_params->id == PKCS11_CKM_XOR_BASE_AND_KEY) {
+		rc = derive_key_by_xor(session, proc_params, parent,
+				       &out_buf, &out_size);
+		if (rc)
+			goto out;
+	} else if (processing_is_tee_symm(proc_params->id)) {
 		rc = init_symm_operation(session, operation, proc_params,
 					 parent);
 		if (rc)

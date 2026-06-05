@@ -1335,6 +1335,7 @@ enum pkcs11_mechanism_id {
 	 * PKCS11 added IDs for operation not related to a CK mechanism ID
 	 */
 	PKCS11_PROCESSING_IMPORT		= 0x80000000,
+	PKCS11_CKM_XOR_BASE_AND_KEY		= 0x8000001B,
 	PKCS11_CKM_UNDEFINED_ID			= PKCS11_UNDEFINED_ID,
 };
 
