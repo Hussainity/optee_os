@@ -4,10 +4,12 @@
  */
 
 #include <assert.h>
+#include <config.h>
 #include <inttypes.h>
 #include <string_ext.h>
 #include <tee_internal_api.h>
 #include <tee_internal_api_extensions.h>
+#include <util.h>
 
 #include "attributes.h"
 #include "handle.h"
@@ -102,8 +104,6 @@ static void cleanup_volatile_obj_ref(struct pkcs11_object *obj)
 void cleanup_persistent_object(struct pkcs11_object *obj,
 			       struct ck_token *token)
 {
-	TEE_Result res = TEE_SUCCESS;
-
 	if (!obj)
 		return;
 
@@ -111,12 +111,16 @@ void cleanup_persistent_object(struct pkcs11_object *obj,
 	if (obj->attribs_hdl != TEE_HANDLE_NULL)
 		TEE_CloseObject(obj->attribs_hdl);
 
-	res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE,
-				       obj->uuid, sizeof(TEE_UUID),
-				       TEE_DATA_FLAG_ACCESS_WRITE_META,
-				       &obj->attribs_hdl);
-	if (!res)
-		TEE_CloseAndDeletePersistentObject1(obj->attribs_hdl);
+	if (!IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+		TEE_Result res = TEE_SUCCESS;
+
+		res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE,
+					       obj->uuid, sizeof(TEE_UUID),
+					       TEE_DATA_FLAG_ACCESS_WRITE_META,
+					       &obj->attribs_hdl);
+		if (!res)
+			TEE_CloseAndDeletePersistentObject1(obj->attribs_hdl);
+	}
 
 	obj->attribs_hdl = TEE_HANDLE_NULL;
 	destroy_object_uuid(token, obj);
@@ -236,33 +240,29 @@ enum pkcs11_rc create_object(void *sess, struct obj_attrs *head,
 	}
 
 	if (get_bool(obj->attributes, PKCS11_CKA_TOKEN)) {
-		TEE_Result res = TEE_SUCCESS;
-
-		/*
-		 * Get an ID for the persistent object
-		 * Create the file
-		 * Register the object in the persistent database
-		 * (move the full sequence to persisent_db.c?)
-		 */
-		size_t size = sizeof(struct obj_attrs) +
-			      obj->attributes->attrs_size;
-		uint32_t tee_obj_flags = TEE_DATA_FLAG_ACCESS_READ |
-					 TEE_DATA_FLAG_ACCESS_WRITE |
-					 TEE_DATA_FLAG_ACCESS_WRITE_META;
-
 		rc = create_object_uuid(get_session_token(session), obj);
 		if (rc)
 			goto err;
 
-		res = TEE_CreatePersistentObject(TEE_STORAGE_PRIVATE,
-						 obj->uuid, sizeof(TEE_UUID),
-						 tee_obj_flags,
-						 TEE_HANDLE_NULL,
-						 obj->attributes, size,
-						 &obj->attribs_hdl);
-		if (res) {
-			rc = tee2pkcs_error(res);
-			goto err;
+		if (!IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+			TEE_Result res = TEE_SUCCESS;
+			size_t size = sizeof(struct obj_attrs) +
+				      obj->attributes->attrs_size;
+			uint32_t tee_obj_flags = TEE_DATA_FLAG_ACCESS_READ |
+						 TEE_DATA_FLAG_ACCESS_WRITE |
+						 TEE_DATA_FLAG_ACCESS_WRITE_META;
+
+			res = TEE_CreatePersistentObject(TEE_STORAGE_PRIVATE,
+							 obj->uuid,
+							 sizeof(TEE_UUID),
+							 tee_obj_flags,
+							 TEE_HANDLE_NULL,
+							 obj->attributes, size,
+							 &obj->attribs_hdl);
+			if (res) {
+				rc = tee2pkcs_error(res);
+				goto err;
+			}
 		}
 
 		rc = register_persistent_object(get_session_token(session),
@@ -270,8 +270,10 @@ enum pkcs11_rc create_object(void *sess, struct obj_attrs *head,
 		if (rc)
 			goto err;
 
-		TEE_CloseObject(obj->attribs_hdl);
-		obj->attribs_hdl = TEE_HANDLE_NULL;
+		if (obj->attribs_hdl != TEE_HANDLE_NULL) {
+			TEE_CloseObject(obj->attribs_hdl);
+			obj->attribs_hdl = TEE_HANDLE_NULL;
+		}
 
 		/* Move object from temporary list to target token list */
 		LIST_REMOVE(obj, link);
