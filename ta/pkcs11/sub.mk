@@ -18,6 +18,13 @@ CFG_PKCS11_TA_CHECK_VALUE_ATTRIBUTE ?= y
 # Raw RSA can be unsafe if client uses a weak clear data padding scheme.
 CFG_PKCS11_TA_RSA_X_509 ?= n
 
+# When enabled, all PKCS#11 token state is kept in heap only. Neither the
+# token main db (token.db.<N>) nor per-object files (UUID-named) are ever
+# read from or written to secure storage. Token metadata (PINs, label,
+# identities, login counters) and objects do not survive a TA restart. Bump
+# CFG_PKCS11_TA_HEAP_SIZE if the working set exceeds 32 KiB.
+CFG_PKCS11_TA_RAM_ONLY ?= y
+
 global-incdirs-y += include
 global-incdirs-y += src
 subdirs-y += src

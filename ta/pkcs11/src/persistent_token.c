@@ -4,6 +4,7 @@
  */
 
 #include <assert.h>
+#include <config.h>
 #include <pkcs11_ta.h>
 #include <string.h>
 #include <string_ext.h>
@@ -55,6 +56,9 @@ void update_persistent_db(struct ck_token *token)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
 	TEE_ObjectHandle db_hdl = TEE_HANDLE_NULL;
+
+	if (IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY))
+		return;
 
 	res = open_db_file(token, &db_hdl);
 	if (res) {
@@ -382,15 +386,20 @@ enum pkcs11_rc unregister_persistent_object(struct ck_token *token,
 	if (!ptr)
 		return PKCS11_CKR_DEVICE_MEMORY;
 
-	res = open_db_file(token, &db_hdl);
-	if (res)
-		goto out;
+	if (!IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+		res = open_db_file(token, &db_hdl);
+		if (res)
+			goto out;
 
-	res = TEE_SeekObjectData(db_hdl, sizeof(struct token_persistent_main),
-				 TEE_DATA_SEEK_SET);
-	if (res) {
-		DMSG("Failed to read database");
-		goto out;
+		res = TEE_SeekObjectData(db_hdl,
+					 sizeof(struct token_persistent_main),
+					 TEE_DATA_SEEK_SET);
+		if (res) {
+			DMSG("Failed to read database");
+			goto out;
+		}
+	} else {
+		res = TEE_SUCCESS;
 	}
 
 	TEE_MemMove(ptr, token->db_objs,
@@ -404,11 +413,13 @@ enum pkcs11_rc unregister_persistent_object(struct ck_token *token,
 		    &token->db_objs->uuids[idx + 1],
 		    count * sizeof(TEE_UUID));
 
-	res = TEE_WriteObjectData(db_hdl, ptr,
-				  sizeof(struct token_persistent_objs) +
-				  ptr->count * sizeof(TEE_UUID));
-	if (res)
-		DMSG("Failed to update database");
+	if (!IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+		res = TEE_WriteObjectData(db_hdl, ptr,
+					  sizeof(struct token_persistent_objs) +
+					  ptr->count * sizeof(TEE_UUID));
+		if (res)
+			DMSG("Failed to update database");
+	}
 	TEE_Free(token->db_objs);
 	token->db_objs = ptr;
 	ptr = NULL;
@@ -441,6 +452,12 @@ enum pkcs11_rc register_persistent_object(struct ck_token *token,
 
 	token->db_objs = ptr;
 	TEE_MemMove(token->db_objs->uuids + count, uuid, sizeof(TEE_UUID));
+
+	if (IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+		/* Persistent path bumps count below, after the disk write succeeds. */
+		token->db_objs->count++;
+		return PKCS11_CKR_OK;
+	}
 
 	size = sizeof(struct token_persistent_main) +
 	       sizeof(struct token_persistent_objs) +
@@ -545,6 +562,9 @@ out:
 
 void release_persistent_object_attributes(struct pkcs11_object *obj)
 {
+	if (IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY))
+		return;
+
 	TEE_Free(obj->attributes);
 	obj->attributes = NULL;
 }
@@ -557,6 +577,9 @@ enum pkcs11_rc update_persistent_object_attributes(struct pkcs11_object *obj)
 	size_t size = 0;
 
 	assert(obj && obj->attributes);
+
+	if (IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY))
+		return PKCS11_CKR_OK;
 
 	res = TEE_OpenPersistentObject(TEE_STORAGE_PRIVATE,
 				       obj->uuid, sizeof(*obj->uuid),
@@ -604,6 +627,23 @@ struct ck_token *init_persistent_db(unsigned int token_id)
 	db_objs = TEE_Malloc(sizeof(*db_objs), TEE_MALLOC_FILL_ZERO);
 	if (!db_main || !db_objs)
 		goto error;
+
+	if (IS_ENABLED(CFG_PKCS11_TA_RAM_ONLY)) {
+		DMSG("PKCS11 token %u: init RAM-only db", token_id);
+
+		TEE_MemFill(db_main, 0, sizeof(*db_main));
+		TEE_MemFill(db_main->label, '*', sizeof(db_main->label));
+
+		db_main->flags = PKCS11_CKFT_SO_PIN_TO_BE_CHANGED |
+				 PKCS11_CKFT_USER_PIN_TO_BE_CHANGED |
+				 PKCS11_CKFT_RNG |
+				 PKCS11_CKFT_LOGIN_REQUIRED;
+
+		token->db_main = db_main;
+		token->db_objs = db_objs;
+
+		return token;
+	}
 
 	res = open_db_file(token, &db_hdl);
 
